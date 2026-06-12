@@ -22,10 +22,13 @@ import {
   Play,
   Plus,
   RefreshCcw,
+  Save,
+  Settings,
   Sparkles,
   Target,
   Trash2,
   TrendingUp,
+  UserRound,
   X,
   Zap,
 } from "lucide-react";
@@ -65,13 +68,35 @@ const initialData = {
   sessions: 2,
   streak: 6,
   weeklyFocus: [35, 50, 25, 45, 30, 0, 0],
+  profile: {
+    name: "Anika",
+    email: "anika@example.com",
+    school: "Anika Builds Academy",
+    course: "Student workspace",
+    bio: "Building better study systems, one focused session at a time.",
+  },
+  preferences: {
+    focusMinutes: 25,
+    breakMinutes: 5,
+    accent: "lavender",
+    deadlineReminders: true,
+    dailySummary: true,
+    compactMode: false,
+  },
 };
 
 function usePersistentData() {
   const [data, setData] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      return saved ? { ...initialData, ...JSON.parse(saved) } : initialData;
+      if (!saved) return initialData;
+      const parsed = JSON.parse(saved);
+      return {
+        ...initialData,
+        ...parsed,
+        profile: { ...initialData.profile, ...parsed.profile },
+        preferences: { ...initialData.preferences, ...parsed.preferences },
+      };
     } catch {
       return initialData;
     }
@@ -117,9 +142,13 @@ const navItems = [
   ["focus", "Focus timer", Focus],
   ["goals", "Study goals", Target],
   ["progress", "Progress", BarChart3],
+  ["settings", "Settings", Settings],
 ];
 
-function Sidebar({ page, setPage, open, setOpen }) {
+const getInitials = (name = "") =>
+  name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "S";
+
+function Sidebar({ page, setPage, open, setOpen, profile }) {
   return (
     <>
       {open && <button className="scrim" aria-label="Close menu" onClick={() => setOpen(false)} />}
@@ -148,17 +177,17 @@ function Sidebar({ page, setPage, open, setOpen }) {
           <p>AI study planning is coming soon.</p>
           <span>Join the waitlist <ArrowRight size={13} /></span>
         </div>
-        <div className="profile">
-          <div className="avatar">A</div>
-          <div><strong>Anika</strong><span>Student workspace</span></div>
+        <button className="profile" onClick={() => { setPage("settings"); setOpen(false); }}>
+          <div className="avatar">{getInitials(profile.name)}</div>
+          <div><strong>{profile.name}</strong><span>{profile.course}</span></div>
           <MoreHorizontal size={18} />
-        </div>
+        </button>
       </aside>
     </>
   );
 }
 
-function Header({ page, setMenuOpen }) {
+function Header({ page, setPage, setMenuOpen, data }) {
   const title = navItems.find(([id]) => id === page)?.[1] || "Dashboard";
   return (
     <header className="topbar">
@@ -168,8 +197,8 @@ function Header({ page, setMenuOpen }) {
         <h2>{title}</h2>
       </div>
       <div className="top-actions">
-        <div className="streak-pill"><Flame size={16} fill="currentColor" /> 6 day streak</div>
-        <button className="avatar small">A</button>
+        <div className="streak-pill"><Flame size={16} fill="currentColor" /> {data.streak} day streak</div>
+        <button className="avatar small" aria-label="Open profile settings" onClick={() => setPage("settings")}>{getInitials(data.profile.name)}</button>
       </div>
     </header>
   );
@@ -201,7 +230,7 @@ function Dashboard({ data, setData, setPage, openAssignment }) {
       <section className="hero">
         <div>
           <span className="hero-kicker"><Sparkles size={14} /> {new Date().toLocaleDateString("en-US", { weekday: "long" })}, let’s make it count</span>
-          <h1>Welcome back, Anika <span>✦</span></h1>
+          <h1>Welcome back, {data.profile.name.split(" ")[0]} <span>✦</span></h1>
           <p>You’re building steady momentum. Here’s what’s happening in your study world today.</p>
           <div className="hero-actions">
             <button className="button primary" onClick={openAssignment}><Plus size={17} /> Add assignment</button>
@@ -401,10 +430,12 @@ function AssignmentModal({ onClose, onAdd }) {
 }
 
 function FocusTimer({ data, setData }) {
+  const focusLength = data.preferences.focusMinutes * 60;
+  const breakLength = data.preferences.breakMinutes * 60;
   const [mode, setMode] = useState("focus");
-  const [seconds, setSeconds] = useState(25 * 60);
+  const [seconds, setSeconds] = useState(focusLength);
   const [running, setRunning] = useState(false);
-  const total = mode === "focus" ? 25 * 60 : 5 * 60;
+  const total = mode === "focus" ? focusLength : breakLength;
 
   useEffect(() => {
     if (!running) return undefined;
@@ -412,7 +443,12 @@ function FocusTimer({ data, setData }) {
       if (value <= 1) {
         setRunning(false);
         if (mode === "focus") {
-          setData((d) => ({ ...d, focusToday: d.focusToday + 25, focusWeek: d.focusWeek + 25, sessions: d.sessions + 1 }));
+          setData((d) => ({
+            ...d,
+            focusToday: d.focusToday + d.preferences.focusMinutes,
+            focusWeek: d.focusWeek + d.preferences.focusMinutes,
+            sessions: d.sessions + 1,
+          }));
         }
         return 0;
       }
@@ -424,7 +460,7 @@ function FocusTimer({ data, setData }) {
   const switchMode = (next) => {
     setMode(next);
     setRunning(false);
-    setSeconds(next === "focus" ? 25 * 60 : 5 * 60);
+    setSeconds(next === "focus" ? focusLength : breakLength);
   };
   const reset = () => { setRunning(false); setSeconds(total); };
   const progress = ((total - seconds) / total) * 360;
@@ -518,6 +554,116 @@ function Progress({ data }) {
   );
 }
 
+function SettingsPage({ data, setData }) {
+  const [draft, setDraft] = useState(data.profile);
+  const [saved, setSaved] = useState(false);
+  const preferences = data.preferences;
+
+  const updatePreference = (key, value) => {
+    setData((current) => ({
+      ...current,
+      preferences: { ...current.preferences, [key]: value },
+    }));
+  };
+
+  const saveProfile = (event) => {
+    event.preventDefault();
+    setData((current) => ({ ...current, profile: { ...draft } }));
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 2200);
+  };
+
+  return (
+    <div className="page settings-page">
+      <PageIntro
+        eyebrow="Make StudyOS yours"
+        title="Profile & settings"
+        body="Personalize your workspace and shape focus sessions around how you study best."
+      />
+
+      <div className="settings-layout">
+        <aside className="profile-summary card">
+          <div className="profile-avatar-large">{getInitials(data.profile.name)}</div>
+          <h2>{data.profile.name}</h2>
+          <p>{data.profile.course}</p>
+          <span>{data.profile.email}</span>
+          <div className="profile-quote">{data.profile.bio}</div>
+          <div className="profile-mini-stats">
+            <div><strong>{data.streak}</strong><span>day streak</span></div>
+            <div><strong>{data.sessions}</strong><span>sessions</span></div>
+          </div>
+        </aside>
+
+        <div className="settings-sections">
+          <form className="card settings-card" onSubmit={saveProfile}>
+            <div className="settings-heading">
+              <div className="settings-icon"><UserRound size={18} /></div>
+              <div><h3>Profile details</h3><p>The name and context shown around your workspace.</p></div>
+            </div>
+            <div className="settings-fields">
+              <label>Full name<input required value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+              <label>Email<input type="email" required value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></label>
+              <label>School or university<input value={draft.school} onChange={(event) => setDraft({ ...draft, school: event.target.value })} /></label>
+              <label>Workspace label<input value={draft.course} onChange={(event) => setDraft({ ...draft, course: event.target.value })} /></label>
+              <label className="full-field">Short bio<textarea rows="3" value={draft.bio} onChange={(event) => setDraft({ ...draft, bio: event.target.value })} /></label>
+            </div>
+            <div className="settings-actions">
+              {saved && <span className="saved-message"><CheckCircle2 size={15} /> Profile saved</span>}
+              <button className="button primary" type="submit"><Save size={16} /> Save changes</button>
+            </div>
+          </form>
+
+          <section className="card settings-card">
+            <div className="settings-heading">
+              <div className="settings-icon peach"><AlarmClock size={18} /></div>
+              <div><h3>Focus defaults</h3><p>Choose the timer rhythm that helps you settle in.</p></div>
+            </div>
+            <div className="duration-grid">
+              <label>Focus session<select value={preferences.focusMinutes} onChange={(event) => updatePreference("focusMinutes", Number(event.target.value))}><option value="20">20 minutes</option><option value="25">25 minutes</option><option value="30">30 minutes</option><option value="45">45 minutes</option><option value="50">50 minutes</option></select></label>
+              <label>Short break<select value={preferences.breakMinutes} onChange={(event) => updatePreference("breakMinutes", Number(event.target.value))}><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option></select></label>
+            </div>
+          </section>
+
+          <section className="card settings-card">
+            <div className="settings-heading">
+              <div className="settings-icon green"><Sparkles size={18} /></div>
+              <div><h3>Workspace preferences</h3><p>Small choices for a calmer daily dashboard.</p></div>
+            </div>
+            <div className="accent-picker">
+              <span>Accent color</span>
+              <div>
+                {[
+                  ["lavender", "Lavender", "#7668df"],
+                  ["rose", "Rose", "#d96f91"],
+                  ["mint", "Mint", "#4f9d8c"],
+                ].map(([value, label, color]) => (
+                  <button type="button" key={value} className={preferences.accent === value ? "selected" : ""} onClick={() => updatePreference("accent", value)}>
+                    <i style={{ background: color }} /> {label} {preferences.accent === value && <Check size={13} />}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="preference-list">
+              <PreferenceToggle label="Deadline reminders" description="Highlight assignments as their due dates approach." checked={preferences.deadlineReminders} onChange={(value) => updatePreference("deadlineReminders", value)} />
+              <PreferenceToggle label="Daily summary" description="Show a quick productivity recap on your dashboard." checked={preferences.dailySummary} onChange={(value) => updatePreference("dailySummary", value)} />
+              <PreferenceToggle label="Compact cards" description="Use slightly tighter spacing across the workspace." checked={preferences.compactMode} onChange={(value) => updatePreference("compactMode", value)} />
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PreferenceToggle({ label, description, checked, onChange }) {
+  return (
+    <div className="preference-row">
+      <div><strong>{label}</strong><span>{description}</span></div>
+      <button type="button" role="switch" aria-checked={checked} className={`toggle ${checked ? "on" : ""}`} onClick={() => onChange(!checked)}><span /></button>
+    </div>
+  );
+}
+
 function EmptyState({ icon: Icon, title, body }) {
   return <div className="empty-state"><Icon size={27} /><strong>{title}</strong><p>{body}</p></div>;
 }
@@ -534,14 +680,15 @@ export default function App() {
     if (page === "focus") return <FocusTimer {...shared} />;
     if (page === "goals") return <Goals {...shared} />;
     if (page === "progress") return <Progress data={data} />;
+    if (page === "settings") return <SettingsPage {...shared} />;
     return <Dashboard {...shared} setPage={setPage} openAssignment={() => setAssignmentOpen(true)} />;
   }, [page, data]);
 
   return (
-    <div className="app-shell">
-      <Sidebar page={page} setPage={setPage} open={menuOpen} setOpen={setMenuOpen} />
+    <div className={`app-shell theme-${data.preferences.accent} ${data.preferences.compactMode ? "compact-mode" : ""}`}>
+      <Sidebar page={page} setPage={setPage} open={menuOpen} setOpen={setMenuOpen} profile={data.profile} />
       <main className="main">
-        <Header page={page} setMenuOpen={setMenuOpen} />
+        <Header page={page} setPage={setPage} setMenuOpen={setMenuOpen} data={data} />
         {pageContent}
         <footer>StudyOS <span>✦</span> Your student life, organized.</footer>
       </main>
