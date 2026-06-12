@@ -17,6 +17,10 @@ import {
   ListTodo,
   Menu,
   MoreHorizontal,
+  LockKeyhole,
+  LogIn,
+  LogOut,
+  Mail,
   Pause,
   PencilLine,
   Play,
@@ -34,6 +38,7 @@ import {
 } from "lucide-react";
 
 const STORAGE_KEY = "studyos-v1";
+const AUTH_KEY = "studyos-auth-v1";
 const SUBJECTS = ["Math", "Computer Science", "English", "Economics", "Design"];
 const SUBJECT_COLORS = {
   Math: "#7c6ee6",
@@ -148,7 +153,13 @@ const navItems = [
 const getInitials = (name = "") =>
   name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "S";
 
-function Sidebar({ page, setPage, open, setOpen, profile }) {
+async function hashPassword(password) {
+  const bytes = new TextEncoder().encode(password);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function Sidebar({ page, setPage, open, setOpen, profile, onSignOut }) {
   return (
     <>
       {open && <button className="scrim" aria-label="Close menu" onClick={() => setOpen(false)} />}
@@ -182,6 +193,7 @@ function Sidebar({ page, setPage, open, setOpen, profile }) {
           <div><strong>{profile.name}</strong><span>{profile.course}</span></div>
           <MoreHorizontal size={18} />
         </button>
+        <button className="sign-out-link" onClick={onSignOut}><LogOut size={15} /> Sign out</button>
       </aside>
     </>
   );
@@ -554,7 +566,7 @@ function Progress({ data }) {
   );
 }
 
-function SettingsPage({ data, setData }) {
+function SettingsPage({ data, setData, onSignOut }) {
   const [draft, setDraft] = useState(data.profile);
   const [saved, setSaved] = useState(false);
   const preferences = data.preferences;
@@ -649,6 +661,17 @@ function SettingsPage({ data, setData }) {
               <PreferenceToggle label="Compact cards" description="Use slightly tighter spacing across the workspace." checked={preferences.compactMode} onChange={(value) => updatePreference("compactMode", value)} />
             </div>
           </section>
+
+          <section className="card settings-card account-card">
+            <div className="settings-heading">
+              <div className="settings-icon rose"><LockKeyhole size={18} /></div>
+              <div><h3>Account</h3><p>Your current StudyOS session on this device.</p></div>
+            </div>
+            <div className="account-row">
+              <div><strong>{data.profile.email}</strong><span>Signed in locally</span></div>
+              <button className="button ghost" onClick={onSignOut}><LogOut size={15} /> Sign out</button>
+            </div>
+          </section>
         </div>
       </div>
     </div>
@@ -664,12 +687,105 @@ function PreferenceToggle({ label, description, checked, onChange }) {
   );
 }
 
+function AuthScreen({ onAuthenticated }) {
+  const [mode, setMode] = useState("signup");
+  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [error, setError] = useState("");
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+    const email = form.email.trim().toLowerCase();
+    const auth = JSON.parse(localStorage.getItem(AUTH_KEY) || '{"accounts":[]}');
+    const existing = auth.accounts.find((account) => account.email === email);
+    const passwordHash = await hashPassword(form.password);
+
+    if (mode === "signup") {
+      if (existing) {
+        setError("An account with this email already exists. Try signing in.");
+        return;
+      }
+      const account = { name: form.name.trim(), email, passwordHash };
+      localStorage.setItem(AUTH_KEY, JSON.stringify({ accounts: [...auth.accounts, account], session: email }));
+      onAuthenticated(account, true);
+      return;
+    }
+
+    if (!existing || existing.passwordHash !== passwordHash) {
+      setError("That email and password do not match.");
+      return;
+    }
+    localStorage.setItem(AUTH_KEY, JSON.stringify({ ...auth, session: email }));
+    onAuthenticated(existing, false);
+  };
+
+  const switchMode = (nextMode) => {
+    setMode(nextMode);
+    setError("");
+  };
+
+  return (
+    <main className="auth-page">
+      <section className="auth-story">
+        <Brand />
+        <div className="auth-copy">
+          <span className="hero-kicker"><Sparkles size={14} /> MindStack by Anika</span>
+          <h1>Your student life,<br /><em>organized.</em></h1>
+          <p>Plan deadlines, protect focus time, and turn everyday effort into progress you can see.</p>
+          <div className="auth-benefits">
+            <span><CheckCircle2 size={16} /> One calm home for every deadline</span>
+            <span><Focus size={16} /> Focus sessions that fit your rhythm</span>
+            <span><TrendingUp size={16} /> Progress that keeps you moving</span>
+          </div>
+        </div>
+        <div className="auth-note">StudyOS <b>✦</b> Built for students who want less chaos.</div>
+      </section>
+
+      <section className="auth-panel">
+        <div className="auth-form-wrap">
+          <div className="auth-mobile-brand"><Brand /></div>
+          <span className="eyebrow">{mode === "signup" ? "Create your workspace" : "Welcome back"}</span>
+          <h2>{mode === "signup" ? "Start with StudyOS" : "Sign in to StudyOS"}</h2>
+          <p>{mode === "signup" ? "A clearer study week starts here." : "Your dashboard is ready when you are."}</p>
+
+          <div className="auth-tabs">
+            <button className={mode === "signup" ? "active" : ""} onClick={() => switchMode("signup")}>Sign up</button>
+            <button className={mode === "signin" ? "active" : ""} onClick={() => switchMode("signin")}>Sign in</button>
+          </div>
+
+          <form className="auth-form" onSubmit={submit}>
+            {mode === "signup" && <label>Full name<input required minLength="2" autoComplete="name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Your name" /></label>}
+            <label>Email address<div className="input-with-icon"><Mail size={16} /><input required type="email" autoComplete="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="you@example.com" /></div></label>
+            <label>Password<div className="input-with-icon"><LockKeyhole size={16} /><input required minLength="6" type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="At least 6 characters" /></div></label>
+            {error && <div className="auth-error">{error}</div>}
+            <button className="button primary auth-submit" type="submit">{mode === "signup" ? <><Sparkles size={16} /> Create my workspace</> : <><LogIn size={16} /> Sign in</>}</button>
+          </form>
+
+          <div className="email-expectation">
+            <Mail size={17} />
+            <div><strong>Thoughtful emails, not noise.</strong><span>Welcome and deadline emails require the secure mail backend to be connected.</span></div>
+          </div>
+          <small className="auth-terms">By continuing, you agree to use StudyOS for excellent things.</small>
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function EmptyState({ icon: Icon, title, body }) {
   return <div className="empty-state"><Icon size={27} /><strong>{title}</strong><p>{body}</p></div>;
 }
 
 export default function App() {
   const [data, setData] = usePersistentData();
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const auth = JSON.parse(localStorage.getItem(AUTH_KEY) || '{"accounts":[]}');
+      return auth.accounts.find((account) => account.email === auth.session) || null;
+    } catch {
+      return null;
+    }
+  });
   const [page, setPage] = useState("dashboard");
   const [menuOpen, setMenuOpen] = useState(false);
   const [assignmentOpen, setAssignmentOpen] = useState(false);
@@ -680,13 +796,32 @@ export default function App() {
     if (page === "focus") return <FocusTimer {...shared} />;
     if (page === "goals") return <Goals {...shared} />;
     if (page === "progress") return <Progress data={data} />;
-    if (page === "settings") return <SettingsPage {...shared} />;
+    if (page === "settings") return <SettingsPage {...shared} onSignOut={signOut} />;
     return <Dashboard {...shared} setPage={setPage} openAssignment={() => setAssignmentOpen(true)} />;
-  }, [page, data]);
+  }, [page, data, currentUser]);
+
+  function authenticate(account, isNew) {
+    setCurrentUser(account);
+    if (isNew) {
+      setData((current) => ({
+        ...current,
+        profile: { ...current.profile, name: account.name, email: account.email },
+      }));
+    }
+  }
+
+  function signOut() {
+    const auth = JSON.parse(localStorage.getItem(AUTH_KEY) || '{"accounts":[]}');
+    localStorage.setItem(AUTH_KEY, JSON.stringify({ ...auth, session: null }));
+    setCurrentUser(null);
+    setPage("dashboard");
+  }
+
+  if (!currentUser) return <AuthScreen onAuthenticated={authenticate} />;
 
   return (
     <div className={`app-shell theme-${data.preferences.accent} ${data.preferences.compactMode ? "compact-mode" : ""}`}>
-      <Sidebar page={page} setPage={setPage} open={menuOpen} setOpen={setMenuOpen} profile={data.profile} />
+      <Sidebar page={page} setPage={setPage} open={menuOpen} setOpen={setMenuOpen} profile={data.profile} onSignOut={signOut} />
       <main className="main">
         <Header page={page} setPage={setPage} setMenuOpen={setMenuOpen} data={data} />
         {pageContent}
